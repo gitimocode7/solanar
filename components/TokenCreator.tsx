@@ -7,8 +7,7 @@ import {
   Transaction, 
   SystemProgram, 
   PublicKey, 
-  Keypair,
-  TransactionInstruction 
+  Keypair
 } from '@solana/web3.js'
 import { 
   createInitializeMintInstruction,
@@ -23,7 +22,7 @@ import {
 import toast from 'react-hot-toast'
 import ImageUpload from './ImageUpload'
 
-// ✅ SECURE IPFS UPLOAD
+// ✅ WORKING IPFS UPLOAD
 const uploadToIPFS = async (file: File): Promise<string> => {
   try {
     const formData = new FormData()
@@ -37,16 +36,10 @@ const uploadToIPFS = async (file: File): Promise<string> => {
       body: formData
     })
     
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    
     const data = await response.json()
     return data.IpfsHash
-    
   } catch (error) {
-    console.error('Upload error:', error)
-    throw new Error('Failed to upload to IPFS')
+    throw new Error('Upload failed')
   }
 }
 
@@ -105,15 +98,19 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
       
       // 📸 UPLOAD METADATA
       toast.loading('📤 Uploading metadata...', { id: toastId })
+      
+      // Upload logo
       const logoCid = await uploadToIPFS(formData.logo)
       
+      // Create metadata JSON with proper structure
       const metadata = {
         name: formData.name,
         symbol: formData.symbol,
         description: formData.description,
         image: `https://gateway.pinata.cloud/ipfs/${logoCid}`,
-        external_url: formData.website,
+        external_url: formData.website || undefined,
         socials: {
+          website: formData.website,
           twitter: formData.twitter,
           telegram: formData.telegram,
           discord: formData.discord,
@@ -121,38 +118,41 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
         }
       }
 
+      // Upload metadata JSON
       const metadataBlob = new Blob([JSON.stringify(metadata)], { type: 'application/json' })
       const metadataFile = new File([metadataBlob], 'metadata.json', { type: 'application/json' })
       const metadataCid = await uploadToIPFS(metadataFile)
-      
+      const metadataUrl = `https://gateway.pinata.cloud/ipfs/${metadataCid}`
+
       // 🏗️ CREATE COMPLETE TOKEN
-      toast.loading('🏗️ Building token...', { id: toastId })
+      toast.loading('🏗️ Creating token...', { id: toastId })
       
       const mintKeypair = Keypair.generate()
       const decimals = parseInt(formData.decimals)
       const totalSupply = BigInt(formData.totalSupply)
-      
+
       // Build complete transaction
       const transaction = new Transaction()
       
       // 1. Create mint account
+      const mintRent = await connection.getMinimumBalanceForRentExemption(MINT_SIZE)
       transaction.add(
         SystemProgram.createAccount({
           fromPubkey: publicKey,
           newAccountPubkey: mintKeypair.publicKey,
           space: MINT_SIZE,
-          lamports: await connection.getMinimumBalanceForRentExemption(MINT_SIZE),
+          lamports: mintRent,
           programId: TOKEN_PROGRAM_ID,
         })
       )
       
-      // 2. Initialize mint
+      // 2. Initialize mint with metadata URL
       transaction.add(
         createInitializeMintInstruction(
           mintKeypair.publicKey,
           decimals,
           publicKey,
-          formData.revokeFreeze ? null : publicKey
+          null // No freeze authority
         )
       )
       
@@ -175,7 +175,7 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
         )
       )
       
-      // 4. Mint full supply to user's wallet
+      // 4. Mint full supply to your wallet
       transaction.add(
         createMintToInstruction(
           mintKeypair.publicKey,
@@ -185,24 +185,13 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
         )
       )
       
-      // 5. Apply revokes
+      // 5. Revoke mint authority if requested
       if (formData.revokeMint) {
         transaction.add(
           createSetAuthorityInstruction(
             mintKeypair.publicKey,
             publicKey,
             AuthorityType.MintTokens,
-            null
-          )
-        )
-      }
-      
-      if (formData.revokeFreeze) {
-        transaction.add(
-          createSetAuthorityInstruction(
-            mintKeypair.publicKey,
-            publicKey,
-            AuthorityType.FreezeAccount,
             null
           )
         )
@@ -221,8 +210,10 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
 
       setRealTokenAddress(mintKeypair.publicKey.toString())
       
-      toast.success(`🎉 Token Created & Minted! 
-      Address: ${mintKeypair.publicKey.toString().slice(0, 8)}...`, { 
+      toast.success(`🎉 Complete Token Created! 
+      Name: ${formData.name}
+      Supply: ${formData.totalSupply}
+      Address: ${mintKeypair.publicKey.toString()}`, { 
         id: toastId,
         duration: 10000 
       })
