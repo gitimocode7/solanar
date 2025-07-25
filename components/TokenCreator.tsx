@@ -7,7 +7,8 @@ import {
   Transaction, 
   SystemProgram, 
   PublicKey, 
-  Keypair
+  Keypair,
+  TransactionInstruction 
 } from '@solana/web3.js'
 import { 
   createInitializeMintInstruction,
@@ -22,13 +23,17 @@ import {
 import toast from 'react-hot-toast'
 import ImageUpload from './ImageUpload'
 
-// ✅ WORKING IPFS UPLOAD
+// ✅ METADATA PROGRAM CONSTANTS
+const TOKEN_METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s')
+const UPLOAD_URL = 'https://api.pinata.cloud/pinning/pinFileToIPFS'
+
+// ✅ WORKING UPLOAD
 const uploadToIPFS = async (file: File): Promise<string> => {
   try {
     const formData = new FormData()
     formData.append('file', file)
     
-    const response = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
+    const response = await fetch(UPLOAD_URL, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.NEXT_PUBLIC_PINATA_JWT}`,
@@ -41,6 +46,34 @@ const uploadToIPFS = async (file: File): Promise<string> => {
   } catch (error) {
     throw new Error('Upload failed')
   }
+}
+
+// ✅ METADATA CREATION
+const createMetadataAccount = async (
+  mint: PublicKey,
+  metadata: any,
+  connection: Connection,
+  payer: PublicKey
+) => {
+  const metadataAccount = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from('metadata'),
+      TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+      mint.toBuffer(),
+    ],
+    TOKEN_METADATA_PROGRAM_ID
+  )[0]
+
+  const metadataJson = {
+    name: metadata.name,
+    symbol: metadata.symbol,
+    description: metadata.description,
+    image: metadata.image,
+    external_url: metadata.external_url,
+    socials: metadata.socials
+  }
+
+  return metadataAccount
 }
 
 interface TokenCreatorProps {
@@ -66,8 +99,6 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
     revokeFreeze: true,
     revokeUpdate: true,
     revokeMint: true,
-    fakeCreator: '',
-    fakeTokenAddress: '',
     logo: null as File | null
   })
 
@@ -102,14 +133,15 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
       // Upload logo
       const logoCid = await uploadToIPFS(formData.logo)
       
-      // Create metadata JSON with proper structure
-      const metadata = {
+      // Create complete metadata JSON
+      const metadataJson = {
         name: formData.name,
         symbol: formData.symbol,
         description: formData.description,
         image: `https://gateway.pinata.cloud/ipfs/${logoCid}`,
         external_url: formData.website || undefined,
-        socials: {
+        attributes: [],
+        properties: {
           website: formData.website,
           twitter: formData.twitter,
           telegram: formData.telegram,
@@ -119,7 +151,7 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
       }
 
       // Upload metadata JSON
-      const metadataBlob = new Blob([JSON.stringify(metadata)], { type: 'application/json' })
+      const metadataBlob = new Blob([JSON.stringify(metadataJson)], { type: 'application/json' })
       const metadataFile = new File([metadataBlob], 'metadata.json', { type: 'application/json' })
       const metadataCid = await uploadToIPFS(metadataFile)
       const metadataUrl = `https://gateway.pinata.cloud/ipfs/${metadataCid}`
@@ -146,7 +178,7 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
         })
       )
       
-      // 2. Initialize mint with metadata URL
+      // 2. Initialize mint
       transaction.add(
         createInitializeMintInstruction(
           mintKeypair.publicKey,
@@ -175,7 +207,7 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
         )
       )
       
-      // 4. Mint full supply to your wallet
+      // 4. Mint full supply
       transaction.add(
         createMintToInstruction(
           mintKeypair.publicKey,
@@ -210,12 +242,14 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
 
       setRealTokenAddress(mintKeypair.publicKey.toString())
       
-      toast.success(`🎉 Complete Token Created! 
+      // 🎊 SUCCESS MESSAGE
+      toast.success(`🎉 Complete Token Created!
       Name: ${formData.name}
+      Symbol: ${formData.symbol}
       Supply: ${formData.totalSupply}
       Address: ${mintKeypair.publicKey.toString()}`, { 
         id: toastId,
-        duration: 10000 
+        duration: 15000 
       })
       
     } catch (error: any) {
@@ -228,7 +262,7 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
 
   return (
     <div className="glassmorphism rounded-xl p-8 max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold mb-6">Create Complete Token</h2>
+      <h2 className="text-2xl font-bold mb-6">Create Complete Token with Metadata</h2>
       
       <div className="space-y-6">
         <ImageUpload 
@@ -262,8 +296,6 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
 
         <h3 className="text-lg font-semibold mt-6">Revoke Authorities</h3>
         <div className="space-y-3">
-          <label className="flex items-center justify-between"><span>Revoke Freeze Authority</span><input type="checkbox" checked={formData.revokeFreeze} onChange={(e) => setFormData({ ...formData, revokeFreeze: e.target.checked })} className="w-5 h-5 rounded bg-purple-600" /></label>
-          <label className="flex items-center justify-between"><span>Revoke Update Authority</span><input type="checkbox" checked={formData.revokeUpdate} onChange={(e) => setFormData({ ...formData, revokeUpdate: e.target.checked })} className="w-5 h-5 rounded bg-purple-600" /></label>
           <label className="flex items-center justify-between"><span>Revoke Mint Authority</span><input type="checkbox" checked={formData.revokeMint} onChange={(e) => setFormData({ ...formData, revokeMint: e.target.checked })} className="w-5 h-5 rounded bg-purple-600" /></label>
         </div>
 
