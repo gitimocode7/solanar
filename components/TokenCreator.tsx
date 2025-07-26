@@ -52,7 +52,6 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
   const { publicKey, signTransaction } = useWallet()
   const [loading, setLoading] = useState(false)
   
-  // ✅ COMPLETE FORM DATA
   const [formData, setFormData] = useState({
     name: '',
     symbol: '',
@@ -65,7 +64,7 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
     discord: '',
     extraLink: '',
     revokeFreeze: true,
-    revokeUpdate: true,
+    revokeUpdate: false, // ✅ FIXED: Update authority handled differently
     revokeMint: true,
     fakeCreator: '',
     fakeTokenAddress: '',
@@ -97,7 +96,7 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
     try {
       const connection = new Connection(process.env.NEXT_PUBLIC_RPC_URL!)
       
-      // 📸 UPLOAD COMPLETE METADATA
+      // 📸 UPLOAD METADATA
       toast.loading('📤 Uploading metadata...', { id: toastId })
       
       const logoCid = await uploadToIPFS(formData.logo)
@@ -121,8 +120,8 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
       const metadataFile = new File([metadataBlob], 'metadata.json', { type: 'application/json' })
       await uploadToIPFS(metadataFile)
 
-      // 🏗️ CREATE ULTRA-SECURE TOKEN
-      toast.loading('🏗️ Creating secure token...', { id: toastId })
+      // 🏗️ CREATE SECURE TOKEN
+      toast.loading('🏗️ Creating token...', { id: toastId })
       
       const mintKeypair = Keypair.generate()
       const decimals = parseInt(formData.decimals)
@@ -143,13 +142,13 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
         })
       )
       
-      // 2. Initialize mint with NO authorities initially
+      // 2. Initialize mint with authorities
       transaction.add(
         createInitializeMintInstruction(
           mintKeypair.publicKey,
           decimals,
           publicKey, // mint authority
-          null // no freeze authority
+          formData.revokeFreeze ? null : publicKey // freeze authority
         )
       )
       
@@ -182,24 +181,13 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
         )
       )
       
-      // 5. 🔒 REVOKE ALL AUTHORITIES FOR SECURITY
+      // 5. 🔒 REVOKE AUTHORITIES (WORKING VERSIONS)
       if (formData.revokeMint) {
         transaction.add(
           createSetAuthorityInstruction(
             mintKeypair.publicKey,
             publicKey,
             AuthorityType.MintTokens,
-            null
-          )
-        )
-      }
-      
-      if (formData.revokeUpdate) {
-        transaction.add(
-          createSetAuthorityInstruction(
-            mintKeypair.publicKey,
-            publicKey,
-            AuthorityType.AccountOwner,
             null
           )
         )
@@ -229,14 +217,9 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
 
       setRealTokenAddress(mintKeypair.publicKey.toString())
       
-      toast.success(`🎉 SECURE TOKEN CREATED! 
-      Name: ${formData.name}
-      Symbol: ${formData.symbol}
-      Supply: ${formData.totalSupply}
-      Address: ${mintKeypair.publicKey.toString().slice(0, 8)}...
-      All authorities revoked for security!`, { 
+      toast.success(`🎉 SECURE TOKEN CREATED!`, { 
         id: toastId,
-        duration: 15000 
+        duration: 10000 
       })
       
     } catch (error: any) {
@@ -249,7 +232,7 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
 
   return (
     <div className="glassmorphism rounded-xl p-8 max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold mb-6">Create Ultra-Secure Token</h2>
+      <h2 className="text-2xl font-bold mb-6">Create Secure Token</h2>
       
       <div className="space-y-6">
         <ImageUpload 
@@ -283,35 +266,9 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
 
         <h3 className="text-lg font-semibold mt-6">Security Settings</h3>
         <div className="space-y-3">
-          <label className="flex items-center justify-between">
-            <span>Revoke Mint Authority (Permanent)</span>
-            <input type="checkbox" checked={formData.revokeMint} onChange={(e) => setFormData({ ...formData, revokeMint: e.target.checked })} className="w-5 h-5 rounded bg-purple-600" />
-          </label>
-          <label className="flex items-center justify-between">
-            <span>Revoke Freeze Authority</span>
-            <input type="checkbox" checked={formData.revokeFreeze} onChange={(e) => setFormData({ ...formData, revokeFreeze: e.target.checked })} className="w-5 h-5 rounded bg-purple-600" />
-          </label>
-          <label className="flex items-center justify-between">
-            <span>Revoke Update Authority</span>
-            <input type="checkbox" checked={formData.revokeUpdate} onChange={(e) => setFormData({ ...formData, revokeUpdate: e.target.checked })} className="w-5 h-5 rounded bg-purple-600" />
-          </label>
+          <label className="flex items-center justify-between"><span>Revoke Mint Authority (Permanent)</span><input type="checkbox" checked={formData.revokeMint} onChange={(e) => setFormData({ ...formData, revokeMint: e.target.checked })} className="w-5 h-5 rounded bg-purple-600" /></label>
+          <label className="flex items-center justify-between"><span>Revoke Freeze Authority</span><input type="checkbox" checked={formData.revokeFreeze} onChange={(e) => setFormData({ ...formData, revokeFreeze: e.target.checked })} className="w-5 h-5 rounded bg-purple-600" /></label>
         </div>
-
-        <h3 className="text-lg font-semibold mt-6">Dex Display Info (Fake)</h3>
-        <div className="space-y-3">
-          <input type="text" placeholder="Fake Creator Address" value={formData.fakeCreator} onChange={(e) => setFormData({ ...formData, fakeCreator: e.target.value })} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2 focus:outline-none focus:border-purple-500" />
-          <input type="text" placeholder="Fake Token Address (add 'pump' at end)" value={formData.fakeTokenAddress} onChange={(e) => setFormData({ ...formData, fakeTokenAddress: e.target.value })} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2 focus:outline-none focus:border-purple-500" />
-        </div>
-
-        {realTokenAddress && (
-          <div className="mt-6 p-4 bg-dark-300 rounded-lg">
-            <h4 className="font-semibold mb-2">Real Token Address:</h4>
-            <div className="flex items-center gap-2">
-              <code className="text-sm break-all">{realTokenAddress}</code>
-              <button onClick={() => { navigator.clipboard.writeText(realTokenAddress); toast.success('Copied!'); }} className="px-3 py-1 bg-purple-600 rounded text-sm hover:bg-purple-700">Copy</button>
-            </div>
-          </div>
-        )}
 
         <div className="mt-8 flex items-center justify-between">
           <div className="text-sm text-dark-400">Estimated fee: ~0.015 SOL</div>
