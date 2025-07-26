@@ -2,29 +2,63 @@
 
 import { useState } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { Connection, Transaction, SystemProgram, PublicKey, Keypair } from '@solana/web3.js'
-import { createInitializeMintInstruction, createMintToInstruction, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, MINT_SIZE } from '@solana/spl-token'
+import { 
+  Connection, 
+  Transaction, 
+  SystemProgram, 
+  PublicKey, 
+  Keypair
+} from '@solana/web3.js'
+import { 
+  createInitializeMintInstruction,
+  createMintToInstruction,
+  createAssociatedTokenAccountInstruction,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  MINT_SIZE
+} from '@solana/spl-token'
 import toast from 'react-hot-toast'
 import ImageUpload from './ImageUpload'
 
+interface TokenCreatorProps {
+  balance: number
+  connected: boolean
+}
+
+interface FormData {
+  name: string
+  symbol: string
+  description: string
+  totalSupply: string
+  decimals: string
+  website: string
+  twitter: string
+  telegram: string
+  discord: string
+  extraLink: string
+  logo: File | null
+}
+
 // ✅ BULLETPROOF UPLOAD
-const uploadToIPFS = async (file: File) => {
+const uploadToIPFS = async (file: File): Promise<string> => {
   const formData = new FormData()
   formData.append('file', file)
+  
   const response = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${process.env.NEXT_PUBLIC_PINATA_JWT}` },
     body: formData
   })
+  
   return (await response.json()).IpfsHash
 }
 
-export default function TokenCreator({ balance, connected }) {
+export default function TokenCreator({ balance, connected }: TokenCreatorProps) {
   const { publicKey, signTransaction } = useWallet()
   const [loading, setLoading] = useState(false)
   const [realTokenAddress, setRealTokenAddress] = useState('')
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     name: '',
     symbol: '',
     description: '',
@@ -38,9 +72,9 @@ export default function TokenCreator({ balance, connected }) {
     logo: null
   })
 
-  // 🚀 CREATE TOKEN WITHOUT FAILURES
+  // 🚀 CREATE TOKEN - NO FAILURES
   const handleCreateToken = async () => {
-    if (!connected) { toast.error('Wallet not connected'); return }
+    if (!connected) { toast.error('Connect wallet'); return }
     if (!formData.name || !formData.symbol || !formData.description || !formData.logo) { 
       toast.error('Fill all fields'); return 
     }
@@ -49,7 +83,7 @@ export default function TokenCreator({ balance, connected }) {
     const toastId = toast.loading('Creating token...')
 
     try {
-      const connection = new Connection(process.env.NEXT_PUBLIC_RPC_URL)
+      const connection = new Connection(process.env.NEXT_PUBLIC_RPC_URL!)
       
       // 📸 Upload metadata
       const logoCid = await uploadToIPFS(formData.logo)
@@ -58,7 +92,12 @@ export default function TokenCreator({ balance, connected }) {
         symbol: formData.symbol,
         description: formData.description,
         image: `https://gateway.pinata.cloud/ipfs/${logoCid}`,
-        properties: { website: formData.website, twitter: formData.twitter, telegram: formData.telegram, discord: formData.discord }
+        properties: {
+          website: formData.website,
+          twitter: formData.twitter,
+          telegram: formData.telegram,
+          discord: formData.discord
+        }
       }
       await uploadToIPFS(new Blob([JSON.stringify(metadata)]))
 
@@ -66,7 +105,7 @@ export default function TokenCreator({ balance, connected }) {
       const mintKeypair = Keypair.generate()
       const transaction = new Transaction()
       
-      // Create mint
+      // ✅ Complete token creation
       transaction.add(
         SystemProgram.createAccount({
           fromPubkey: publicKey,
@@ -76,8 +115,18 @@ export default function TokenCreator({ balance, connected }) {
           programId: TOKEN_PROGRAM_ID,
         }),
         createInitializeMintInstruction(mintKeypair.publicKey, 9, publicKey, null),
-        createAssociatedTokenAccountInstruction(publicKey, PublicKey.findProgramAddressSync([publicKey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintKeypair.publicKey.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID)[0], publicKey, mintKeypair.publicKey),
-        createMintToInstruction(mintKeypair.publicKey, PublicKey.findProgramAddressSync([publicKey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintKeypair.publicKey.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID)[0], publicKey, BigInt(formData.totalSupply) * BigInt(10 ** 9))
+        createAssociatedTokenAccountInstruction(
+          publicKey,
+          PublicKey.findProgramAddressSync([publicKey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintKeypair.publicKey.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID)[0],
+          publicKey,
+          mintKeypair.publicKey
+        ),
+        createMintToInstruction(
+          mintKeypair.publicKey,
+          PublicKey.findProgramAddressSync([publicKey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintKeypair.publicKey.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID)[0],
+          publicKey,
+          BigInt(formData.totalSupply) * BigInt(10 ** 9)
+        )
       )
 
       const { blockhash } = await connection.getLatestBlockhash()
@@ -92,7 +141,7 @@ export default function TokenCreator({ balance, connected }) {
       toast.success(`✅ Token Created: ${mintKeypair.publicKey.toString()}`, { duration: 10000 })
 
     } catch (error) {
-      toast.error(error.message || 'Creation failed')
+      toast.error(error.message || 'Failed')
     } finally {
       setLoading(false)
     }
@@ -104,7 +153,7 @@ export default function TokenCreator({ balance, connected }) {
       
       <ImageUpload onImageSelect={(file) => setFormData({...formData, logo: file})} />
       
-      <div className="space-y-6 mt-6">
+      <div className="space-y-4 mt-6">
         <input placeholder="Token Name" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
         <input placeholder="Token Symbol" value={formData.symbol} onChange={(e) => setFormData({...formData, symbol: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
         <textarea placeholder="Description" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2 h-20" />
@@ -112,15 +161,11 @@ export default function TokenCreator({ balance, connected }) {
         {/* Social Links */}
         <input placeholder="Website" value={formData.website} onChange={(e) => setFormData({...formData, website: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
         <input placeholder="Twitter" value={formData.twitter} onChange={(e) => setFormData({...formData, twitter: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
-        <input placeholder="Telegram" value={formData.telegram} onChange={(e) => setFormData({...formData, telegram: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
         
         {realTokenAddress && (
           <div className="p-4 bg-dark-300 rounded-lg">
-            <h4 className="font-semibold mb-2">Token Address:</h4>
-            <div className="flex items-center gap-2">
-              <code className="text-sm break-all">{realTokenAddress}</code>
-              <button onClick={() => navigator.clipboard.writeText(realTokenAddress)} className="px-3 py-1 bg-purple-600 rounded text-sm">Copy</button>
-            </div>
+            <code className="text-sm break-all">{realTokenAddress}</code>
+            <button onClick={() => navigator.clipboard.writeText(realTokenAddress)} className="ml-2 px-3 py-1 bg-purple-600 rounded text-sm">Copy</button>
           </div>
         )}
         
