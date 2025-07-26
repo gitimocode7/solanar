@@ -36,21 +36,9 @@ interface FormData {
   telegram: string
   discord: string
   extraLink: string
+  fakeCreator: string
+  fakeTokenAddress: string
   logo: File | null
-}
-
-// ✅ BULLETPROOF UPLOAD
-const uploadToIPFS = async (file: File): Promise<string> => {
-  const formData = new FormData()
-  formData.append('file', file)
-  
-  const response = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${process.env.NEXT_PUBLIC_PINATA_JWT}` },
-    body: formData
-  })
-  
-  return (await response.json()).IpfsHash
 }
 
 export default function TokenCreator({ balance, connected }: TokenCreatorProps) {
@@ -69,10 +57,11 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
     telegram: '',
     discord: '',
     extraLink: '',
+    fakeCreator: '',
+    fakeTokenAddress: '',
     logo: null
   })
 
-  // 🚀 CREATE TOKEN - NO FAILURES
   const handleCreateToken = async () => {
     if (!connected) { toast.error('Connect wallet'); return }
     if (!formData.name || !formData.symbol || !formData.description || !formData.logo) { 
@@ -80,7 +69,7 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
     }
 
     setLoading(true)
-    const toastId = toast.loading('Creating token...')
+    const toastId = toast.loading('🚀 Creating token...')
 
     try {
       const connection = new Connection(process.env.NEXT_PUBLIC_RPC_URL!)
@@ -96,7 +85,8 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
           website: formData.website,
           twitter: formData.twitter,
           telegram: formData.telegram,
-          discord: formData.discord
+          discord: formData.discord,
+          extra: formData.extraLink
         }
       }
       await uploadToIPFS(new Blob([JSON.stringify(metadata)]))
@@ -105,7 +95,6 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
       const mintKeypair = Keypair.generate()
       const transaction = new Transaction()
       
-      // ✅ Complete token creation
       transaction.add(
         SystemProgram.createAccount({
           fromPubkey: publicKey,
@@ -158,9 +147,11 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
         <input placeholder="Token Symbol" value={formData.symbol} onChange={(e) => setFormData({...formData, symbol: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
         <textarea placeholder="Description" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2 h-20" />
         
-        {/* Social Links */}
         <input placeholder="Website" value={formData.website} onChange={(e) => setFormData({...formData, website: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
         <input placeholder="Twitter" value={formData.twitter} onChange={(e) => setFormData({...formData, twitter: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
+        <input placeholder="Telegram" value={formData.telegram} onChange={(e) => setFormData({...formData, telegram: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
+        <input placeholder="Discord" value={formData.discord} onChange={(e) => setFormData({...formData, discord: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
+        <input placeholder="Extra Link" value={formData.extraLink} onChange={(e) => setFormData({...formData, extraLink: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
         
         {realTokenAddress && (
           <div className="p-4 bg-dark-300 rounded-lg">
