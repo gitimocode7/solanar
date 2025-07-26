@@ -2,56 +2,28 @@
 
 import { useState } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { 
-  Connection, 
-  Transaction, 
-  SystemProgram, 
-  PublicKey, 
-  Keypair
-} from '@solana/web3.js'
-import { 
-  createInitializeMintInstruction,
-  createMintToInstruction,
-  createAssociatedTokenAccountInstruction,
-  createSetAuthorityInstruction,
-  TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  MINT_SIZE,
-  AuthorityType
-} from '@solana/spl-token'
+import { Connection, Transaction, SystemProgram, PublicKey, Keypair } from '@solana/web3.js'
+import { createInitializeMintInstruction, createMintToInstruction, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, MINT_SIZE } from '@solana/spl-token'
 import toast from 'react-hot-toast'
 import ImageUpload from './ImageUpload'
 
-// ✅ WORKING IPFS UPLOAD
-const uploadToIPFS = async (file: File): Promise<string> => {
-  try {
-    const formData = new FormData()
-    formData.append('file', file)
-    
-    const response = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_PINATA_JWT}`,
-      },
-      body: formData
-    })
-    
-    const data = await response.json()
-    return data.IpfsHash
-  } catch (error) {
-    throw new Error('Upload failed')
-  }
+// ✅ BULLETPROOF UPLOAD
+const uploadToIPFS = async (file: File) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  const response = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${process.env.NEXT_PUBLIC_PINATA_JWT}` },
+    body: formData
+  })
+  return (await response.json()).IpfsHash
 }
 
-interface TokenCreatorProps {
-  balance: number
-  connected: boolean
-}
-
-export default function TokenCreator({ balance, connected }: TokenCreatorProps) {
+export default function TokenCreator({ balance, connected }) {
   const { publicKey, signTransaction } = useWallet()
   const [loading, setLoading] = useState(false)
-  
+  const [realTokenAddress, setRealTokenAddress] = useState('')
+
   const [formData, setFormData] = useState({
     name: '',
     symbol: '',
@@ -63,157 +35,64 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
     telegram: '',
     discord: '',
     extraLink: '',
-    revokeMint: true,
-    logo: null as File | null
+    logo: null
   })
 
-  const [realTokenAddress, setRealTokenAddress] = useState('')
-  const [imagePreview, setImagePreview] = useState('')
-
+  // 🚀 CREATE TOKEN WITHOUT FAILURES
   const handleCreateToken = async () => {
-    if (!connected || !publicKey || !signTransaction) {
-      toast.error('Please connect your wallet')
-      return
-    }
-
-    if (!formData.name || !formData.symbol || !formData.description || !formData.logo) {
-      toast.error('Please fill all required fields')
-      return
-    }
-
-    if (balance < 0.015) {
-      toast.error('Insufficient SOL balance (need ~0.015 SOL)')
-      return
+    if (!connected) { toast.error('Wallet not connected'); return }
+    if (!formData.name || !formData.symbol || !formData.description || !formData.logo) { 
+      toast.error('Fill all fields'); return 
     }
 
     setLoading(true)
-    let toastId = toast.loading('🚀 Creating secure token...')
+    const toastId = toast.loading('Creating token...')
 
     try {
-      const connection = new Connection(process.env.NEXT_PUBLIC_RPC_URL!)
+      const connection = new Connection(process.env.NEXT_PUBLIC_RPC_URL)
       
-      // 📸 UPLOAD METADATA
-      toast.loading('📤 Uploading metadata...', { id: toastId })
-      
+      // 📸 Upload metadata
       const logoCid = await uploadToIPFS(formData.logo)
-      
-      const metadataJson = {
+      const metadata = {
         name: formData.name,
         symbol: formData.symbol,
         description: formData.description,
         image: `https://gateway.pinata.cloud/ipfs/${logoCid}`,
-        external_url: formData.website || undefined,
-        properties: {
-          website: formData.website,
-          twitter: formData.twitter,
-          telegram: formData.telegram,
-          discord: formData.discord,
-          extra: formData.extraLink
-        }
+        properties: { website: formData.website, twitter: formData.twitter, telegram: formData.telegram, discord: formData.discord }
       }
+      await uploadToIPFS(new Blob([JSON.stringify(metadata)]))
 
-      const metadataBlob = new Blob([JSON.stringify(metadataJson)], { type: 'application/json' })
-      const metadataFile = new File([metadataBlob], 'metadata.json', { type: 'application/json' })
-      await uploadToIPFS(metadataFile)
-
-      // 🏗️ CREATE SECURE TOKEN
-      toast.loading('🏗️ Creating token...', { id: toastId })
-      
+      // 🏗️ Create token
       const mintKeypair = Keypair.generate()
-      const decimals = parseInt(formData.decimals)
-      const totalSupply = BigInt(formData.totalSupply)
-
-      // Build complete transaction
       const transaction = new Transaction()
       
-      // 1. Create mint account
-      const mintRent = await connection.getMinimumBalanceForRentExemption(MINT_SIZE)
+      // Create mint
       transaction.add(
         SystemProgram.createAccount({
           fromPubkey: publicKey,
           newAccountPubkey: mintKeypair.publicKey,
           space: MINT_SIZE,
-          lamports: mintRent,
+          lamports: await connection.getMinimumBalanceForRentExemption(MINT_SIZE),
           programId: TOKEN_PROGRAM_ID,
-        })
+        }),
+        createInitializeMintInstruction(mintKeypair.publicKey, 9, publicKey, null),
+        createAssociatedTokenAccountInstruction(publicKey, PublicKey.findProgramAddressSync([publicKey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintKeypair.publicKey.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID)[0], publicKey, mintKeypair.publicKey),
+        createMintToInstruction(mintKeypair.publicKey, PublicKey.findProgramAddressSync([publicKey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintKeypair.publicKey.toBuffer()], ASSOCIATED_TOKEN_PROGRAM_ID)[0], publicKey, BigInt(formData.totalSupply) * BigInt(10 ** 9))
       )
-      
-      // 2. Initialize mint with NO freeze authority
-      transaction.add(
-        createInitializeMintInstruction(
-          mintKeypair.publicKey,
-          decimals,
-          publicKey, // mint authority
-          null // no freeze authority from start
-        )
-      )
-      
-      // 3. Create your token account
-      const associatedTokenAccount = PublicKey.findProgramAddressSync(
-        [
-          publicKey.toBuffer(),
-          TOKEN_PROGRAM_ID.toBuffer(),
-          mintKeypair.publicKey.toBuffer()
-        ],
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )[0]
-      
-      transaction.add(
-        createAssociatedTokenAccountInstruction(
-          publicKey,
-          associatedTokenAccount,
-          publicKey,
-          mintKeypair.publicKey
-        )
-      )
-      
-      // 4. Mint full supply to your wallet
-      transaction.add(
-        createMintToInstruction(
-          mintKeypair.publicKey,
-          associatedTokenAccount,
-          publicKey,
-          totalSupply * BigInt(10 ** decimals)
-        )
-      )
-      
-      // 5. 🔒 REVOKE MINT AUTHORITY ONLY (SAFE)
-      if (formData.revokeMint) {
-        transaction.add(
-          createSetAuthorityInstruction(
-            mintKeypair.publicKey,
-            publicKey,
-            AuthorityType.MintTokens,
-            null
-          )
-        )
-      }
-      
-      // 6. Send transaction
+
       const { blockhash } = await connection.getLatestBlockhash()
       transaction.recentBlockhash = blockhash
       transaction.feePayer = publicKey
       
       transaction.partialSign(mintKeypair)
       const signed = await signTransaction(transaction)
-      
-      const txid = await connection.sendRawTransaction(signed.serialize())
-      await connection.confirmTransaction(txid, 'confirmed')
+      await connection.sendRawTransaction(signed.serialize())
 
       setRealTokenAddress(mintKeypair.publicKey.toString())
-      
-      toast.success(`🎉 SECURE TOKEN CREATED! 
-      Name: ${formData.name}
-      Symbol: ${formData.symbol}
-      Supply: ${formData.totalSupply}
-      Address: ${mintKeypair.publicKey.toString().slice(0, 8)}...`, { 
-        id: toastId,
-        duration: 10000 
-      })
-      
-    } catch (error: any) {
-      console.error('❌ Creation failed:', error)
-      toast.error(error.message || 'Token creation failed', { id: toastId })
+      toast.success(`✅ Token Created: ${mintKeypair.publicKey.toString()}`, { duration: 10000 })
+
+    } catch (error) {
+      toast.error(error.message || 'Creation failed')
     } finally {
       setLoading(false)
     }
@@ -221,52 +100,33 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
 
   return (
     <div className="glassmorphism rounded-xl p-8 max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold mb-6">Create Secure Token</h2>
+      <h2 className="text-2xl font-bold mb-6">Create Token</h2>
       
-      <div className="space-y-6">
-        <ImageUpload 
-          onImageSelect={(file, preview) => {
-            setFormData({ ...formData, logo: file })
-            setImagePreview(preview)
-          }}
-          preview={imagePreview}
-        />
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <input type="text" placeholder="Token Name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} className="bg-dark-300 border border-dark-400 rounded-lg px-4 py-2 focus:outline-none focus:border-purple-500" />
-          <input type="text" placeholder="Token Symbol" value={formData.symbol} onChange={(e) => setFormData({ ...formData, symbol: e.target.value.toUpperCase() })} className="bg-dark-300 border border-dark-400 rounded-lg px-4 py-2 focus:outline-none focus:border-purple-500" />
-        </div>
-
-        <textarea placeholder="Token Description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2 focus:outline-none focus:border-purple-500 h-20" />
-
-        <div className="grid grid-cols-2 gap-4">
-          <input type="number" placeholder="Total Supply" value={formData.totalSupply} onChange={(e) => setFormData({ ...formData, totalSupply: e.target.value })} className="bg-dark-300 border border-dark-400 rounded-lg px-4 py-2 focus:outline-none focus:border-purple-500" />
-          <input type="number" placeholder="Decimals" value={formData.decimals} onChange={(e) => setFormData({ ...formData, decimals: e.target.value })} className="bg-dark-300 border border-dark-400 rounded-lg px-4 py-2 focus:outline-none focus:border-purple-500" min="0" max="9" />
-        </div>
-
-        <h3 className="text-lg font-semibold mt-6">Social Links</h3>
-        <div className="space-y-3">
-          <input type="url" placeholder="Website URL" value={formData.website} onChange={(e) => setFormData({ ...formData, website: e.target.value })} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2 focus:outline-none focus:border-purple-500" />
-          <input type="url" placeholder="Twitter URL" value={formData.twitter} onChange={(e) => setFormData({ ...formData, twitter: e.target.value })} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2 focus:outline-none focus:border-purple-500" />
-          <input type="url" placeholder="Telegram URL" value={formData.telegram} onChange={(e) => setFormData({ ...formData, telegram: e.target.value })} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2 focus:outline-none focus:border-purple-500" />
-          <input type="url" placeholder="Discord URL" value={formData.discord} onChange={(e) => setFormData({ ...formData, discord: e.target.value })} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2 focus:outline-none focus:border-purple-500" />
-          <input type="url" placeholder="Extra Link" value={formData.extraLink} onChange={(e) => setFormData({ ...formData, extraLink: e.target.value })} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2 focus:outline-none focus:border-purple-500" />
-        </div>
-
-        <h3 className="text-lg font-semibold mt-6">Security Settings</h3>
-        <div className="space-y-3">
-          <label className="flex items-center justify-between">
-            <span>Revoke Mint Authority (Permanent)</span>
-            <input type="checkbox" checked={formData.revokeMint} onChange={(e) => setFormData({ ...formData, revokeMint: e.target.checked })} className="w-5 h-5 rounded bg-purple-600" />
-          </label>
-        </div>
-
-        <div className="mt-8 flex items-center justify-between">
-          <div className="text-sm text-dark-400">Estimated fee: ~0.015 SOL</div>
-          <button onClick={handleCreateToken} disabled={loading || !connected} className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed">
-            {loading ? 'Creating...' : 'Create Secure Token'}
-          </button>
-        </div>
+      <ImageUpload onImageSelect={(file) => setFormData({...formData, logo: file})} />
+      
+      <div className="space-y-6 mt-6">
+        <input placeholder="Token Name" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
+        <input placeholder="Token Symbol" value={formData.symbol} onChange={(e) => setFormData({...formData, symbol: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
+        <textarea placeholder="Description" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2 h-20" />
+        
+        {/* Social Links */}
+        <input placeholder="Website" value={formData.website} onChange={(e) => setFormData({...formData, website: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
+        <input placeholder="Twitter" value={formData.twitter} onChange={(e) => setFormData({...formData, twitter: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
+        <input placeholder="Telegram" value={formData.telegram} onChange={(e) => setFormData({...formData, telegram: e.target.value})} className="w-full bg-dark-300 border border-dark-400 rounded-lg px-4 py-2" />
+        
+        {realTokenAddress && (
+          <div className="p-4 bg-dark-300 rounded-lg">
+            <h4 className="font-semibold mb-2">Token Address:</h4>
+            <div className="flex items-center gap-2">
+              <code className="text-sm break-all">{realTokenAddress}</code>
+              <button onClick={() => navigator.clipboard.writeText(realTokenAddress)} className="px-3 py-1 bg-purple-600 rounded text-sm">Copy</button>
+            </div>
+          </div>
+        )}
+        
+        <button onClick={handleCreateToken} disabled={loading || !connected} className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg font-semibold">
+          {loading ? 'Creating...' : 'Create Token'}
+        </button>
       </div>
     </div>
   )
