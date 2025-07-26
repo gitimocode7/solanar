@@ -63,11 +63,7 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
     telegram: '',
     discord: '',
     extraLink: '',
-    revokeFreeze: true,
-    revokeUpdate: false, // ✅ FIXED: Update authority handled differently
     revokeMint: true,
-    fakeCreator: '',
-    fakeTokenAddress: '',
     logo: null as File | null
   })
 
@@ -142,13 +138,13 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
         })
       )
       
-      // 2. Initialize mint with authorities
+      // 2. Initialize mint with NO freeze authority
       transaction.add(
         createInitializeMintInstruction(
           mintKeypair.publicKey,
           decimals,
           publicKey, // mint authority
-          formData.revokeFreeze ? null : publicKey // freeze authority
+          null // no freeze authority from start
         )
       )
       
@@ -181,24 +177,13 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
         )
       )
       
-      // 5. 🔒 REVOKE AUTHORITIES (WORKING VERSIONS)
+      // 5. 🔒 REVOKE MINT AUTHORITY ONLY (SAFE)
       if (formData.revokeMint) {
         transaction.add(
           createSetAuthorityInstruction(
             mintKeypair.publicKey,
             publicKey,
             AuthorityType.MintTokens,
-            null
-          )
-        )
-      }
-      
-      if (formData.revokeFreeze) {
-        transaction.add(
-          createSetAuthorityInstruction(
-            mintKeypair.publicKey,
-            publicKey,
-            AuthorityType.FreezeAccount,
             null
           )
         )
@@ -217,7 +202,11 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
 
       setRealTokenAddress(mintKeypair.publicKey.toString())
       
-      toast.success(`🎉 SECURE TOKEN CREATED!`, { 
+      toast.success(`🎉 SECURE TOKEN CREATED! 
+      Name: ${formData.name}
+      Symbol: ${formData.symbol}
+      Supply: ${formData.totalSupply}
+      Address: ${mintKeypair.publicKey.toString().slice(0, 8)}...`, { 
         id: toastId,
         duration: 10000 
       })
@@ -266,8 +255,10 @@ export default function TokenCreator({ balance, connected }: TokenCreatorProps) 
 
         <h3 className="text-lg font-semibold mt-6">Security Settings</h3>
         <div className="space-y-3">
-          <label className="flex items-center justify-between"><span>Revoke Mint Authority (Permanent)</span><input type="checkbox" checked={formData.revokeMint} onChange={(e) => setFormData({ ...formData, revokeMint: e.target.checked })} className="w-5 h-5 rounded bg-purple-600" /></label>
-          <label className="flex items-center justify-between"><span>Revoke Freeze Authority</span><input type="checkbox" checked={formData.revokeFreeze} onChange={(e) => setFormData({ ...formData, revokeFreeze: e.target.checked })} className="w-5 h-5 rounded bg-purple-600" /></label>
+          <label className="flex items-center justify-between">
+            <span>Revoke Mint Authority (Permanent)</span>
+            <input type="checkbox" checked={formData.revokeMint} onChange={(e) => setFormData({ ...formData, revokeMint: e.target.checked })} className="w-5 h-5 rounded bg-purple-600" />
+          </label>
         </div>
 
         <div className="mt-8 flex items-center justify-between">
