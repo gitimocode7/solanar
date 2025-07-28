@@ -119,24 +119,26 @@ export default function CreateToken() {
             updateAuthority: publicKey,
           },
           {
-            data: {
-              name: form.name,
-              symbol: form.symbol,
-              uri: metadataUri,
-              sellerFeeBasisPoints: 0,
-              creators: form.fakeCreator
-                ? [
-                    {
-                      address: new PublicKey(form.fakeCreator),
-                      verified: false,
-                      share: 100,
-                    },
-                  ]
-                : null,
-              collection: null,
-              uses: null,
+            createMetadataAccountArgsV2: {
+              data: {
+                name: form.name,
+                symbol: form.symbol,
+                uri: metadataUri,
+                sellerFeeBasisPoints: 0,
+                creators: form.fakeCreator
+                  ? [
+                      {
+                        address: new PublicKey(form.fakeCreator),
+                        verified: false,
+                        share: 100,
+                      },
+                    ]
+                  : null,
+                collection: null,
+                uses: null,
+              },
+              isMutable: false,
             },
-            isMutable: false,
           }
         ),
         createSetAuthorityInstruction(mintKeypair.publicKey, publicKey, AuthorityType.MintTokens, null)
