@@ -12,7 +12,7 @@ import {
   TOKEN_PROGRAM_ID,
   getAssociatedTokenAddress,
 } from "@solana/spl-token";
-import { createCreateMetadataAccountV2Instruction } from "@metaplex-foundation/mpl-token-metadata";
+import { createCreateMetadataAccountV2Instruction } from "@metaplex-foundation/mpl-token-metadata"; // THIS IS IMPORTANT
 import ImagePicker from "./ImagePicker";
 import { uploadToPinata } from "@/utils/pinata";
 
