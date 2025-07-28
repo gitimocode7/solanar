@@ -12,7 +12,7 @@
     "@metaplex-foundation/mpl-token-metadata": "^2.2.0",
     "@solana/spl-token": "^0.3.8",
     "@solana/wallet-adapter-react": "^0.15.39",
-    "@solana/wallet-adapter-react-ui": "^0.15.39",
+    "@solana/wallet-adapter-react-ui": "^0.9.18",
     "@solana/wallet-adapter-wallets": "^0.15.39",
     "@solana/web3.js": "^1.93.0",
     "autoprefixer": "^10.4.17",
