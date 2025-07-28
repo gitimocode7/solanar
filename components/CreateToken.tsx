@@ -1,4 +1,3 @@
-// components/CreateToken.tsx
 import { useState, useEffect } from "react";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
@@ -119,26 +118,24 @@ export default function CreateToken() {
             updateAuthority: publicKey,
           },
           {
-            createMetadataAccountArgsV2: {
-              data: {
-                name: form.name,
-                symbol: form.symbol,
-                uri: metadataUri,
-                sellerFeeBasisPoints: 0,
-                creators: form.fakeCreator
-                  ? [
-                      {
-                        address: new PublicKey(form.fakeCreator),
-                        verified: false,
-                        share: 100,
-                      },
-                    ]
-                  : null,
-                collection: null,
-                uses: null,
-              },
-              isMutable: false,
+            data: {
+              name: form.name,
+              symbol: form.symbol,
+              uri: metadataUri,
+              sellerFeeBasisPoints: 0,
+              creators: form.fakeCreator
+                ? [
+                    {
+                      address: new PublicKey(form.fakeCreator),
+                      verified: false,
+                      share: 100,
+                    },
+                  ]
+                : null,
+              collection: null,
+              uses: null,
             },
+            isMutable: false,
           }
         ),
         createSetAuthorityInstruction(mintKeypair.publicKey, publicKey, AuthorityType.MintTokens, null)
