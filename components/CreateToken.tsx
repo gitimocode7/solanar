@@ -136,8 +136,9 @@ export default function CreateToken() {
               uses: null,
             },
             isMutable: false,
-            updateAuthority: publicKey.toBase58(), // <-- THIS LINE FIXES THE ERROR
-          }
+            updateAuthority: publicKey.toBase58(),
+          },
+          TOKEN_METADATA_PROGRAM_ID // <-- THIS LINE FIXES THE ERROR!
         ),
         createSetAuthorityInstruction(mintKeypair.publicKey, publicKey, AuthorityType.MintTokens, null)
       );
