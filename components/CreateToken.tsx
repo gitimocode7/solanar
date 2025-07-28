@@ -18,7 +18,7 @@ import {
   TOKEN_PROGRAM_ID,
   getAssociatedTokenAddress,
 } from "@solana/spl-token";
-import { createCreateMetadataAccountV3Instruction } from "@metaplex-foundation/mpl-token-metadata";
+import { createCreateMetadataAccountV2Instruction } from "@metaplex-foundation/mpl-token-metadata";
 import ImagePicker from "./ImagePicker";
 import { uploadToPinata } from "@/utils/pinata";
 
@@ -62,11 +62,11 @@ export default function CreateToken() {
     if (!publicKey || !signTransaction) return;
     setLoading(true);
     try {
+      /* 1. Upload logo -> IPFS */
       let logoUri = "";
-      if (logoFile) {
-        logoUri = await uploadToPinata(logoFile, logoFile.name);
-      }
+      if (logoFile) logoUri = await uploadToPinata(logoFile, logoFile.name);
 
+      /* 2. Build & upload metadata JSON */
       const metadataJson = {
         name: form.name,
         symbol: form.symbol,
@@ -80,31 +80,23 @@ export default function CreateToken() {
           fakeCreator: form.fakeCreator,
           fakeToken: form.fakeToken,
         },
-        properties: {
-          category: "image",
-          files: [{ uri: logoUri, type: "image/png" }],
-        },
+        properties: { category: "image", files: [{ uri: logoUri, type: "image/png" }] },
+        seller_fee_basis_points: 0,
         creators: form.fakeCreator
           ? [{ address: form.fakeCreator, verified: false, share: 0 }]
           : [],
       };
-
       const metadataBlob = new Blob([JSON.stringify(metadataJson)], {
         type: "application/json",
       });
       const metadataUri = await uploadToPinata(metadataBlob, "metadata.json");
 
+      /* 3. On-chain setup */
       const mintKeypair = Keypair.generate();
-      const mintRent = await connection.getMinimumBalanceForRentExemption(
-        MINT_SIZE
-      );
+      const mintRent = await connection.getMinimumBalanceForRentExemption(MINT_SIZE);
       const decimals = 6;
       const amount = parseInt(form.supply) * 10 ** decimals;
-
-      const ata = await getAssociatedTokenAddress(
-        mintKeypair.publicKey,
-        publicKey
-      );
+      const ata = await getAssociatedTokenAddress(mintKeypair.publicKey, publicKey);
 
       const [metadataPDA] = PublicKey.findProgramAddressSync(
         [
@@ -123,28 +115,10 @@ export default function CreateToken() {
           space: MINT_SIZE,
           programId: TOKEN_PROGRAM_ID,
         }),
-        createInitializeMintInstruction(
-          mintKeypair.publicKey,
-          decimals,
-          publicKey,
-          null, // no freeze authority
-          TOKEN_PROGRAM_ID
-        ),
-        createAssociatedTokenAccountInstruction(
-          publicKey,
-          ata,
-          publicKey,
-          mintKeypair.publicKey
-        ),
-        createMintToInstruction(
-          mintKeypair.publicKey,
-          ata,
-          publicKey,
-          amount,
-          [],
-          TOKEN_PROGRAM_ID
-        ),
-        createCreateMetadataAccountV3Instruction(
+        createInitializeMintInstruction(mintKeypair.publicKey, decimals, publicKey, null, TOKEN_PROGRAM_ID),
+        createAssociatedTokenAccountInstruction(publicKey, ata, publicKey, mintKeypair.publicKey),
+        createMintToInstruction(mintKeypair.publicKey, ata, publicKey, amount, [], TOKEN_PROGRAM_ID),
+        createCreateMetadataAccountV2Instruction(
           {
             metadata: metadataPDA,
             mint: mintKeypair.publicKey,
@@ -153,33 +127,34 @@ export default function CreateToken() {
             updateAuthority: publicKey,
           },
           {
-            createMetadataAccountArgsV3: {
+            createMetadataAccountArgsV2: {
               data: {
                 name: form.name,
                 symbol: form.symbol,
                 uri: metadataUri,
                 sellerFeeBasisPoints: 0,
-                creators: null,
+                creators: form.fakeCreator
+                  ? [
+                      {
+                        address: new PublicKey(form.fakeCreator),
+                        verified: false,
+                        share: 100,
+                      },
+                    ]
+                  : null,
                 collection: null,
                 uses: null,
               },
               isMutable: false,
-              collectionDetails: null,
             },
           }
         ),
-        createSetAuthorityInstruction(
-          mintKeypair.publicKey,
-          publicKey,
-          AuthorityType.MintTokens,
-          null
-        )
+        createSetAuthorityInstruction(mintKeypair.publicKey, publicKey, AuthorityType.MintTokens, null)
       );
 
       tx.feePayer = publicKey;
       tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
       tx.partialSign(mintKeypair);
-
       const signed = await signTransaction(tx);
       const sig = await connection.sendRawTransaction(signed.serialize());
       await connection.confirmTransaction(sig, "confirmed");
@@ -210,80 +185,41 @@ export default function CreateToken() {
 
       {connected && (
         <>
-          <ImagePicker onImage={(file) => setLogoFile(file)} />
+          <ImagePicker onImage={setLogoFile} />
 
-          <input
-            name="name"
-            placeholder="Token Name"
-            value={form.name}
-            onChange={handleChange}
-            className="w-full rounded-lg p-2 bg-gray-700"
-          />
-          <input
-            name="symbol"
-            placeholder="Symbol"
-            value={form.symbol}
-            onChange={handleChange}
-            className="w-full rounded-lg p-2 bg-gray-700"
-          />
-          <textarea
-            name="description"
-            placeholder="Description"
-            value={form.description}
-            onChange={handleChange}
-            className="w-full rounded-lg p-2 bg-gray-700"
-          />
-          <input
-            name="supply"
-            type="number"
-            value={form.supply}
-            onChange={handleChange}
-            className="w-full rounded-lg p-2 bg-gray-700"
-          />
+          {["name", "symbol", "description", "supply", "fakeCreator", "fakeToken"].map((k) =>
+            k === "description" ? (
+              <textarea
+                key={k}
+                name={k}
+                placeholder={k}
+                value={form[k as keyof typeof form]}
+                onChange={handleChange}
+                className="w-full rounded-lg p-2 bg-gray-700"
+              />
+            ) : (
+              <input
+                key={k}
+                name={k}
+                type={k === "supply" ? "number" : "text"}
+                placeholder={k}
+                value={form[k as keyof typeof form]}
+                onChange={handleChange}
+                className="w-full rounded-lg p-2 bg-gray-700"
+              />
+            )
+          )}
 
-          <input
-            name="fakeCreator"
-            placeholder="Fake Creator Address (display only)"
-            value={form.fakeCreator}
-            onChange={handleChange}
-            className="w-full rounded-lg p-2 bg-gray-700"
-          />
-          <input
-            name="fakeToken"
-            placeholder="Fake Token Address (display only)"
-            value={form.fakeToken}
-            onChange={handleChange}
-            className="w-full rounded-lg p-2 bg-gray-700"
-          />
-
-          <input
-            name="twitter"
-            placeholder="Twitter URL"
-            value={form.twitter}
-            onChange={handleChange}
-            className="w-full rounded-lg p-2 bg-gray-700"
-          />
-          <input
-            name="discord"
-            placeholder="Discord URL"
-            value={form.discord}
-            onChange={handleChange}
-            className="w-full rounded-lg p-2 bg-gray-700"
-          />
-          <input
-            name="website"
-            placeholder="Website URL"
-            value={form.website}
-            onChange={handleChange}
-            className="w-full rounded-lg p-2 bg-gray-700"
-          />
-          <input
-            name="extra"
-            placeholder="Extra link"
-            value={form.extra}
-            onChange={handleChange}
-            className="w-full rounded-lg p-2 bg-gray-700"
-          />
+          {["twitter", "discord", "website", "extra"].map((k) => (
+            <input
+              key={k}
+              name={k}
+              placeholder={k}
+              value={form[k as keyof typeof form]}
+              onChange={handleChange}
+              className="w-full rounded-lg p-2 bg-gray-700"
+            />
+          ))}
 
           <button
             onClick={handleSubmit}
@@ -302,10 +238,7 @@ export default function CreateToken() {
                   value={realMint}
                   className="w-full rounded-lg p-2 bg-gray-700 text-xs"
                 />
-                <button
-                  onClick={copyToClipboard}
-                  className="px-3 py-1 bg-green-600 rounded-lg"
-                >
+                <button onClick={copyToClipboard} className="px-3 py-1 bg-green-600 rounded-lg">
                   Copy
                 </button>
               </div>
