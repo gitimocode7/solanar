@@ -62,11 +62,9 @@ export default function CreateToken() {
     if (!publicKey || !signTransaction) return;
     setLoading(true);
     try {
-      /* 1. Upload logo -> IPFS */
       let logoUri = "";
       if (logoFile) logoUri = await uploadToPinata(logoFile, logoFile.name);
 
-      /* 2. Build & upload metadata JSON */
       const metadataJson = {
         name: form.name,
         symbol: form.symbol,
@@ -83,15 +81,14 @@ export default function CreateToken() {
         properties: { category: "image", files: [{ uri: logoUri, type: "image/png" }] },
         seller_fee_basis_points: 0,
         creators: form.fakeCreator
-          ? [{ address: form.fakeCreator, verified: false, share: 0 }]
-          : [],
+          ? [{ address: form.fakeCreator, verified: false, share: 100 }]
+          : null,
       };
       const metadataBlob = new Blob([JSON.stringify(metadataJson)], {
         type: "application/json",
       });
       const metadataUri = await uploadToPinata(metadataBlob, "metadata.json");
 
-      /* 3. On-chain setup */
       const mintKeypair = Keypair.generate();
       const mintRent = await connection.getMinimumBalanceForRentExemption(MINT_SIZE);
       const decimals = 6;
@@ -127,26 +124,24 @@ export default function CreateToken() {
             updateAuthority: publicKey,
           },
           {
-            createMetadataAccountArgsV2: {
-              data: {
-                name: form.name,
-                symbol: form.symbol,
-                uri: metadataUri,
-                sellerFeeBasisPoints: 0,
-                creators: form.fakeCreator
-                  ? [
-                      {
-                        address: new PublicKey(form.fakeCreator),
-                        verified: false,
-                        share: 100,
-                      },
-                    ]
-                  : null,
-                collection: null,
-                uses: null,
-              },
-              isMutable: false,
+            data: {
+              name: form.name,
+              symbol: form.symbol,
+              uri: metadataUri,
+              sellerFeeBasisPoints: 0,
+              creators: form.fakeCreator
+                ? [
+                    {
+                      address: new PublicKey(form.fakeCreator),
+                      verified: false,
+                      share: 100,
+                    },
+                  ]
+                : null,
+              collection: null,
+              uses: null,
             },
+            isMutable: false,
           }
         ),
         createSetAuthorityInstruction(mintKeypair.publicKey, publicKey, AuthorityType.MintTokens, null)
